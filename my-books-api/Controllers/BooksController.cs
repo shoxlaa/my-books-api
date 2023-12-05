@@ -45,15 +45,14 @@ namespace my_books_api.Controllers
         }
 
 
-        [HttpDelete("deletw-book-by-id/{id}")]
+        [HttpDelete("delete-book-by-id/{id}")]
 
         public IActionResult DeleteBookById(int id)
         {
             _bookService.DeleteById(id);
             return Ok();
 
-        }
-
+        }        
     }
   
 }

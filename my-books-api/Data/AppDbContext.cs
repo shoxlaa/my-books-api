@@ -1,9 +1,10 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using my_books_api.Data.Models;
 
 namespace my_books_api.Data
 {
-    public class AppDbContext : DbContext
+    public class AppDbContext : IdentityDbContext<ApplicationUser>
     {
         public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
         {
@@ -22,6 +23,7 @@ namespace my_books_api.Data
                .WithMany(bi => bi.Book_Author)
                .HasForeignKey(a => a.AuthorId);
 
+            base.OnModelCreating(modelBuilder);
         }
 
         public DbSet<Book> Books { get; set; }
