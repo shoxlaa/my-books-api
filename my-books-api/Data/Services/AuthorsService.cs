@@ -12,7 +12,7 @@ namespace my_books_api.Data.Services
             _context = context;
         }
 
-        public void AddBook(AuthorVm authorVm)
+        public void AddAuthor(AuthorVm authorVm)
         {
 
             var _author = new Author()

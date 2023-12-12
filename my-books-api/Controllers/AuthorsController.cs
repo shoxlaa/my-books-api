@@ -19,7 +19,7 @@ namespace my_books_api.Controllers
         [HttpPost("add-author")]
         public IActionResult AddAuthor([FromBody] AuthorVm author)
         {
-            _authorsService.AddBook(author);
+            _authorsService.AddAuthor(author);
             return Ok();
         }
 
