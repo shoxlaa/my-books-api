@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Identity.Client;
 using my_books_api.Data.Models;
@@ -10,7 +11,7 @@ namespace my_books_api.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    public class PublisherController : ControllerBase
+     public class PublisherController : ControllerBase
     {
 
         private PublishersService _publisherService;
@@ -39,8 +40,8 @@ namespace my_books_api.Controllers
 
         }
 
-        [HttpGet("get-all-publishers")]
-        public IActionResult GetAllPublishers(string sortBy, string searchString, int page) 
+        [HttpGet("get-all-publishers"), Authorize]
+        public IActionResult GetAllPublishers(string? sortBy, string? searchString, int? page) 
         { 
             
             try
