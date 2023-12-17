@@ -14,7 +14,6 @@ using System.Text;
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
@@ -29,6 +28,25 @@ options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnectio
 builder.Services.AddTransient<BookService>();
 builder.Services.AddTransient<AuthorsService>();
 builder.Services.AddTransient<PublishersService>();
+// Token ValidationParams 
+
+var tokenValidationParametrs = new TokenValidationParameters()
+{
+    ValidateIssuerSigningKey = true,
+    IssuerSigningKey = new SymmetricSecurityKey(Encoding.ASCII.GetBytes(builder.Configuration.GetSection("JWT:Secret").Value!)),
+
+    ValidateIssuer = true,
+    ValidIssuer = builder.Configuration.GetSection("JWT:Issuer").Value!,
+
+    ValidateAudience = true,
+    ValidAudience = builder.Configuration.GetSection("JWT:Audience").Value!,
+
+    ValidateLifetime = true , 
+    ClockSkew = TimeSpan.Zero
+};
+
+builder.Services.AddSingleton(tokenValidationParametrs); 
+
 
 //Add Identity 
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>().
@@ -60,15 +78,7 @@ builder.Services.AddAuthentication(options =>
        options. IncludeErrorDetails = true;
         options.SaveToken = true;
         options.RequireHttpsMetadata = false;
-        options.TokenValidationParameters = new TokenValidationParameters()
-        {
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.ASCII.GetBytes(builder.Configuration.GetSection("JWT:Secret").Value!)),
-            ValidateIssuer = true,
-            ValidIssuer = builder.Configuration.GetSection("JWT:Issuer").Value!,
-            ValidateAudience = true,
-            ValidAudience =  builder.Configuration.GetSection("JWT:Audience").Value!
-        };
+        options.TokenValidationParameters = tokenValidationParametrs;
     });
 
 var app = builder.Build();

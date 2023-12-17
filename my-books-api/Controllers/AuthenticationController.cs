@@ -1,5 +1,7 @@
 ﻿using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Identity.Client;
 using Microsoft.IdentityModel.Tokens;
 using my_books_api.Data;
 using my_books_api.Data.Models;
@@ -18,12 +20,17 @@ namespace my_books_api.Controllers
         private readonly AppDbContext _context;
         private readonly IConfiguration _configuration; 
 
-        public AuthenticationController(UserManager<ApplicationUser> userManager, RoleManager<IdentityRole> roleManager, AppDbContext context, IConfiguration configuration)
+        //Refrfesh tojes 
+
+        private readonly TokenValidationParameters _tokenValidationParameters;
+
+        public AuthenticationController(UserManager<ApplicationUser> userManager, RoleManager<IdentityRole> roleManager, AppDbContext context, IConfiguration configuration, TokenValidationParameters tokenValidationParameters)
         {
             _userManager=userManager;
             _roleManager=roleManager;
             _context=context;
             _configuration=configuration;
+            _tokenValidationParameters=tokenValidationParameters;
         }
 
         [HttpPost("register-user")]
@@ -65,15 +72,100 @@ namespace my_books_api.Controllers
             var user = await _userManager.FindByEmailAsync(payload.Email);
             if(user != null && await _userManager.CheckPasswordAsync(user, payload.Password))
             {
-                var tokenValue = await GenerateJwtToken(user); 
+                var tokenValue = await GenerateJwtTokenAsync(user," "); 
                 return Ok (tokenValue);  
 
             }  
 
             return Unauthorized();
         }
+        [HttpPost("refresh-token")]
+        public async Task<IActionResult> RefreshToken([FromBody] TokenRequestVM playload)
+        {
+            try
+            {
+                var reslt = await VerifyAndGenerateTokenAsync(playload);
+                if (reslt == null) return BadRequest("Invalis tokens"); 
 
-        public async Task<AuthResultVm> GenerateJwtToken(ApplicationUser user)
+                return Ok(reslt);   
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        private async Task<AuthResultVm> VerifyAndGenerateTokenAsync(TokenRequestVM payload)
+        {
+            var jwtTokenHandler = new JwtSecurityTokenHandler();
+
+            try
+            {
+
+                //cheack 1 : cheack JWT token format 
+                var tokenInVerification = jwtTokenHandler.ValidateToken(payload.Token, _tokenValidationParameters, out var validatedToken);
+
+                //cheack 2 : Encryption algorithm 
+
+                if (validatedToken is JwtSecurityToken jwtSecurityToken)
+                {
+                    var result = jwtSecurityToken.Header.Alg.Equals(SecurityAlgorithms.HmacSha256, StringComparison.InvariantCultureIgnoreCase);
+                    if (result == false) return null;
+                }
+
+                //cheack 3 - validate expiry date 
+                var utcExpiryDate = long.Parse(tokenInVerification.Claims.FirstOrDefault(x => x.Type == JwtRegisteredClaimNames.Exp).Value);
+
+                var expiryDate = UnixTimeStampDateTimeinUTC(utcExpiryDate);
+
+                if (expiryDate > DateTime.UtcNow) throw new Exception("Token has not expired yet ");
+
+                //Cheack 4 Refresh token exists in the DB 
+
+                var dbRefreshToken = await _context.RefreshTokens.FirstOrDefaultAsync(n => n.Token == payload.RefreshToken);
+
+                if (dbRefreshToken == null) throw new Exception($"Refresh token does not exists in our DB");
+                else
+                {
+                    //cheack 5 - validate Id 
+                    var jti = tokenInVerification.Claims.FirstOrDefault(x => x.Type == JwtRegisteredClaimNames.Jti).Value;
+
+                    if (dbRefreshToken.JwtId != jti) throw new Exception("Token doesn't match  "); // не соответствует
+
+                    // cheack 6 Refresh token expiration 
+                    if (dbRefreshToken.DateExpired <= DateTime.UtcNow) throw new Exception("Your refresh token has expired , please re-athenticate ");
+
+                    //cheack 7 refresh token is revoked  отозван
+
+                    if (dbRefreshToken.IsRevoked) throw new Exception("Refresh token is revoked ");
+
+                    // Generate new token (with existing refresh token ) 
+
+                    var dbUserData = await _userManager.FindByIdAsync(dbRefreshToken.UserId);
+
+                    var newTokenResponse = GenerateJwtTokenAsync(dbUserData, payload.RefreshToken);
+
+                    return await newTokenResponse;
+                }
+            }
+            catch (SecurityTokenExpiredException)
+            {
+                // Generate new token (with existing refresh token ) 
+                var dbRefreshToken = await _context.RefreshTokens.FirstOrDefaultAsync(n => n.Token == payload.RefreshToken);
+
+                var dbUserData = await _userManager.FindByIdAsync(dbRefreshToken.UserId);
+
+                var newTokenResponse = GenerateJwtTokenAsync(dbUserData, payload.RefreshToken);
+
+                return await newTokenResponse;
+            }
+            catch (Exception ex) 
+            {
+                throw new Exception(ex.Message);
+            }
+
+        }
+        public async Task<AuthResultVm> GenerateJwtTokenAsync(ApplicationUser user, string existinfRefreshToken)
         {
             var authClaims = new List<Claim>()
             {
@@ -95,29 +187,40 @@ namespace my_books_api.Controllers
                 );
 
             var jwtToken = new JwtSecurityTokenHandler().WriteToken(token);
+            var refreshToken = new RefreshToken();
 
-            var refreshToken = new RefreshToken()
+            if (string.IsNullOrEmpty(existinfRefreshToken)) 
             {
-                JwtId = token.Id,
-                IsRevoked = false,
-                UserId = user.Id,
-                DateAdded = DateTime.UtcNow,
-                DateExpired = DateTime.UtcNow.AddMonths(6),
-                Token = Guid.NewGuid().ToString() + "-" + Guid.NewGuid().ToString()
-            };
-            await _context.RefreshTokens.AddAsync(refreshToken);
-            await _context.SaveChangesAsync();
+                 refreshToken = new RefreshToken()
+                {
+                    JwtId = token.Id,
+                    IsRevoked = false,
+                    UserId = user.Id,
+                    DateAdded = DateTime.UtcNow,
+                    DateExpired = DateTime.UtcNow.AddMonths(6),
+                    Token = Guid.NewGuid().ToString() + "-" + Guid.NewGuid().ToString()
+                };
+                await _context.RefreshTokens.AddAsync(refreshToken);
+                await _context.SaveChangesAsync();
+            }
+           
 
             var response = new AuthResultVm()
             {
                 Token = jwtToken,
-                RefreshToken = refreshToken.Token,
+                RefreshToken = (string.IsNullOrEmpty(existinfRefreshToken))? refreshToken.Token : existinfRefreshToken ,
                 ExpirestAt = token.ValidTo
             };
 
             return response;
         }
        
+        private DateTime UnixTimeStampDateTimeinUTC(long unixTimeStamp)
+        {
+            var dateTimeVal = new DateTime(1970,1,1,0,0,0,0, DateTimeKind.Utc);
+            dateTimeVal = dateTimeVal.AddSeconds(unixTimeStamp);
+            return dateTimeVal;
+        }
         
         public IActionResult Index()
         {
