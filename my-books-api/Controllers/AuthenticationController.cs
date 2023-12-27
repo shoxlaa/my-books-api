@@ -20,7 +20,7 @@ namespace my_books_api.Controllers
         private readonly AppDbContext _context;
         private readonly IConfiguration _configuration; 
 
-        //Refrfesh tojes 
+        //Refrfesh tokens  
 
         private readonly TokenValidationParameters _tokenValidationParameters;
 
